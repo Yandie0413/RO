@@ -6,9 +6,8 @@ calcul des dates au plus tôt / au plus tard / marges / chemin critique,
 et affichage sous forme de tableau et de graphe interactif.
 """
 
-import re
-
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import networkx as nx
 from pyvis.network import Network
@@ -234,21 +233,12 @@ def render_mpm_graph(mpm):
             width=3 if crit else 1,
         )
 
+    # components.html() affiche le document dans une vraie iframe : le document pyvis
+    # complet (<html><head>...</head><body>...</body></html>) s'y charge tel quel, avec
+    # l'exécution normale et fiable du navigateur — contrairement à st.html(), qui injecte
+    # sans iframe et ne garantit pas l'exécution correcte de gros scripts <head>.
     html = net.generate_html(notebook=False)
-    st.html(_flatten_pyvis_html(html), unsafe_allow_javascript=True)
-
-
-def _flatten_pyvis_html(full_html: str) -> str:
-    """pyvis génère un document HTML complet (<html><head>...</head><body>...</body></html>),
-    mais st.html() injecte le contenu directement dans la page, sans iframe : les balises
-    <head>/<body> imbriquées ne survivent pas et la bibliothèque JS du graphe (placée dans
-    le <head>) disparaît. On aplatit donc le document en un seul fragment (styles + scripts
-    + contenu du body) pour que tout soit conservé."""
-    head_match = re.search(r"<head[^>]*>(.*?)</head>", full_html, re.S)
-    body_match = re.search(r"<body[^>]*>(.*?)</body>", full_html, re.S)
-    head_content = head_match.group(1) if head_match else ""
-    body_content = body_match.group(1) if body_match else full_html
-    return head_content + body_content
+    components.html(html, height=650, scrolling=True)
 
 
 # ----------------------------------------------------------------------------
@@ -256,14 +246,19 @@ def _flatten_pyvis_html(full_html: str) -> str:
 # ----------------------------------------------------------------------------
 st.title("Ordonnancement des tâches — Graphe MPM")
 st.caption(
-    "Méthode des Potentiels Métra : saisissez vos tâches, les dates au plus tôt / au plus tard, "
-    "les marges et le chemin critique se recalculent automatiquement."
+    "Méthode des Potentiels Métra : saisissez toutes vos tâches, puis cliquez sur "
+    "« Afficher le graphe » pour calculer les dates au plus tôt / au plus tard, "
+    "les marges et le chemin critique."
 )
+
+if "mpm_result" not in st.session_state:
+    st.session_state.mpm_result = None
 
 col_left, col_right = st.columns([3, 1])
 with col_right:
     if st.button("Vider le tableau"):
         st.session_state.tasks = EMPTY_TASKS.copy()
+        st.session_state.mpm_result = None
         st.rerun()
 
 st.subheader("1. Saisie des tâches")
@@ -280,12 +275,18 @@ st.session_state.tasks = st.data_editor(
     },
 )
 
+if st.button("Afficher le graphe", type="primary"):
+    try:
+        st.session_state.mpm_result = compute_mpm(st.session_state.tasks)
+    except ValueError as e:
+        st.session_state.mpm_result = None
+        st.error(str(e))
+
 st.divider()
 
-try:
-    mpm = compute_mpm(st.session_state.tasks)
-except ValueError as e:
-    st.error(str(e))
+mpm = st.session_state.mpm_result
+if mpm is None:
+    st.info("Remplissez le tableau ci-dessus puis cliquez sur « Afficher le graphe ».")
     st.stop()
 
 m1, m2, m3 = st.columns(3)
